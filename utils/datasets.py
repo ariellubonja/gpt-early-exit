@@ -1,4 +1,5 @@
 from datasets import load_dataset
+
 # ChatGPT - take 100 shortest entries from Tiny Shakespeare
 def get_top_n_tiny_shakespeare(n=25, mode='longest'):
     # Load the dataset
@@ -25,3 +26,7 @@ def get_top_n_tiny_shakespeare(n=25, mode='longest'):
     #     print(len(example['Text']))
 
     return shortest_100 
+
+
+def make_keys_lowercase(dataset):
+    return {k.lower(): v for k, v in dataset.items()}

@@ -5,6 +5,9 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import numpy as np
 from transformers import GPT2Tokenizer
+from datasets.dataset_dict import DatasetDict
+from utils.datasets import make_keys_lowercase
+from torch import nn
 
 def plot_intermediate_model_outputs(model, keys = ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states'], bins=100):
     for i in range(len(model.h)):
@@ -27,7 +30,7 @@ def compare_model_perplexity(model1, model2, dataset_name: str = "Trelis/tiny-sh
     model2 = model2.eval()
 
     dataset = load_dataset(dataset_name)
-    text_data = dataset['train']['Text']
+    text_data = dataset['train']['text']
 
     # If n_rows is specified, slice the dataset
     if n_rows is not None:
@@ -74,14 +77,14 @@ def compare_model_perplexity(model1, model2, dataset_name: str = "Trelis/tiny-sh
     print(f"Perplexity of Modified Model: {perplexity_modified}")
 
 
-def compute_model_perplexity(model, dataset_name: str = "Trelis/tiny-shakespeare", n_rows: int = None, batch_size=4):
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2-medium")
+def compute_model_perplexity(model, dataset: DatasetDict, n_rows: int = None, batch_size=4, tokenizer=GPT2Tokenizer.from_pretrained("gpt2-medium")):
     # We need a padding token for DataLoader
     tokenizer.pad_token = tokenizer.eos_token
     model = model.eval()
 
-    dataset = load_dataset(dataset_name)
-    text_data = dataset['train']['Text']  # TODO Add test data too. we're not doing any training anyway
+    dataset = make_keys_lowercase(dataset)
+
+    text_data = dataset['test']['text']  # TODO Add test data too. we're not doing any training anyway
 
     # If n_rows is specified, slice the dataset
     if n_rows is not None:
@@ -118,3 +121,83 @@ def compute_model_perplexity(model, dataset_name: str = "Trelis/tiny-shakespeare
 
     print(f"Perplexity of Model: {perplexity_original}")
     return perplexity_original
+
+
+def filter_state_dict(original_state_dict, max_layer):
+    """
+    Filter the state dictionary to only include layers up to 'max_layer'.
+    """
+    filtered_state_dict = {}
+    for key, value in original_state_dict.items():
+        # Assuming layer numbers are specified in the keys like 'h.0.', 'h.1.', etc.
+        if "h." in key:
+            layer_number = int(key.split('.')[1])
+            if layer_number <= max_layer:
+                filtered_state_dict[key] = value
+        else:
+            # Include all other parameters that do not depend on layer number
+            filtered_state_dict[key] = value
+    return filtered_state_dict
+
+
+
+def early_exit_generation(model, input_text, tokenizer, num_tokens_to_generate=20, exit_layer=5):
+    def get_hiddenstates_attn(input_ids, model, tokenizer):
+        with torch.no_grad():
+            output = model(input_ids=input_ids)
+        hidden_states = output.hidden_states
+        attentions = output.attentions
+        return hidden_states, attentions
+
+    token_probabilities = []
+    logits = []
+    input_ids = tokenizer.encode(input_text, return_tensors='pt')
+
+    for _ in range(num_tokens_to_generate):
+        # outputs = model(input_ids)
+        hidden_states, attns = get_hiddenstates_attn(input_ids, model, tokenizer)
+
+        ln_f = nn.LayerNorm(model.config.n_embd, eps=model.config.layer_norm_epsilon)
+        layer_norm = ln_f(hidden_states[exit_layer])
+
+        # if apply_layer_norm:
+        if exit_layer != len(hidden_states) - 1:
+            # print("yes for ", str(exit_layer))
+            ln_f = nn.LayerNorm(model.config.n_embd, eps=model.config.layer_norm_epsilon)
+            layer_norm = ln_f(hidden_states[exit_layer])
+            logits_out = model.lm_head(layer_norm)
+        else:
+            # print("no layernorm or lm_head for ", str(exit_layer))
+            # logits = model.lm_head(hidden_states[exit_layer])
+            logits_out = model.lm_head(hidden_states[exit_layer])
+
+        # Only use the logits from the last token position
+        next_token_logits = logits_out[:, -1, :]
+        next_token_id = torch.argmax(next_token_logits, dim=-1).unsqueeze(-1)
+        
+        k = 15
+        top_k_tokens = torch.topk(next_token_logits, k, dim=-1)
+        top_k_probabilities = F.softmax(top_k_tokens.values, dim=-1)
+        
+        plt.figure()
+        plt.plot(top_k_probabilities[0].tolist())
+        plt.title('Top-15 probabilities for early exit layer ' + str(exit_layer))
+        
+        # plt.legend()
+
+        # print(next_token_logits)
+
+        # Append the predicted token ID to the input sequence
+        input_ids = torch.cat([input_ids, next_token_id], dim=-1)
+
+        # get the probabilities
+        probabilities = F.softmax(next_token_logits, dim=-1)
+        top_proba = probabilities[0][next_token_id].item()
+        # top_proba = next_token_logits[0][next_token_id].item()
+        token_probabilities.append(top_proba)
+        logits.append(next_token_logits)
+
+    # print(input_ids)
+    generated_text = tokenizer.decode(input_ids[0])
+
+    return generated_text, token_probabilities
