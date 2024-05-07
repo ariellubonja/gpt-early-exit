@@ -159,9 +159,9 @@ class TopKGPT2Model(GPT2Model):
         self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
 
         self.drop = nn.Dropout(config.embd_pdrop)
-        if early_exit_layer is None:
-            nr_layers = config.num_hidden_layers
-        else:
+
+        nr_layers = config.num_hidden_layers
+        if early_exit_layer is not None:
             nr_layers = early_exit_layer
         self.h = nn.ModuleList([TopKGPT2Block(config, layer_idx=i, fine_tuned_sparsity=fine_tuned_sparsity) for i in range(nr_layers)])
         self.ln_f = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_epsilon)
