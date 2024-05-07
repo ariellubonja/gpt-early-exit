@@ -9,17 +9,36 @@ from datasets.dataset_dict import DatasetDict
 from utils.datasets import make_keys_lowercase
 from torch import nn
 
-def plot_intermediate_model_outputs(model, keys = ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states'], bins=100, xlim=None):
-    for i in range(len(model.h)):
+
+def plot_intermediate_model_outputs(model, bins=100, xlim=None, ylim=None, num_layers=None, keys = ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states']):
+    """
+    Plots the intermediate outputs of the model for each layer.
+
+    Args:
+    - model: The model whose intermediate outputs are to be plotted.
+    - bins: Number of bins for the histogram.
+    - xlim: Tuple of two values specifying the range of the x-axis for the histogram.
+    - ylim: Tuple of two values specifying the range of the y-axis for the histogram.
+    - num_layers: Number of Transformer layers layers to plot. If None, all layers are plotted.
+    - keys: List of keys for which intermediate outputs are to be plotted. Default is 
+    ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states']
+    """
+
+    if num_layers is None:
+        num_layers = len(model.h)
+    
+    for i in range(num_layers):
         int_out = model.h[i].intermediate_outputs
         for key in keys:
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
             im = ax1.imshow(int_out[key][0])#, aspect='auto', interpolation='nearest')
             ax1.set_title(f'Layer {i} {key} - Image')
             ax1.figure.colorbar(im, ax=ax1)
-            ax2.hist(int_out[key][0], bins)#.ravel())#, bins=20, color='blue')
+            ax2.hist(int_out[key][0].ravel(), bins)#, bins=20, color='blue')
             if xlim is not None:
                 ax2.set_xlim(xlim)  # Make histogram range consistent
+            if ylim is not None:
+                ax2.set_ylim(ylim)
             ax2.set_title(f'Layer {i} {key} - Histogram')
             plt.show()
 
