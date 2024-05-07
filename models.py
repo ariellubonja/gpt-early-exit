@@ -150,7 +150,7 @@ class TopKGPT2Block(GPT2Block):
 
 
 class TopKGPT2Model(GPT2Model):
-    def __init__(self, config, fine_tuned_sparsity=0.5, early_exit_layer=None):
+    def __init__(self, config, fine_tuned_sparsity=0, early_exit_layer=None):
         super().__init__(config)
 
         self.embed_dim = config.hidden_size
