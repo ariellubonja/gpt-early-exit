@@ -1,22 +1,19 @@
 from matplotlib import pyplot as plt
 import torch
-from datasets import load_dataset
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 import numpy as np
 from transformers import GPT2Tokenizer
-from datasets.dataset_dict import DatasetDict
-from utils.datasets import make_keys_lowercase
 from torch import nn
 
 
-def plot_intermediate_model_outputs(model, bins=100, xlim=None, ylim=None, num_layers=None, keys = ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states']):
+def plot_intermediate_model_outputs(model, xlim, bins=100, ylim=None, num_layers=None, keys = ['initial_hidden_states', 'post_ln1_hidden_states', 'attn_projection_output', 'post_attn_residual_hidden_states', 'post_cross_attn_hidden_states', 'post_ln2_hidden_states', 'post_feed_fwd_hidden_states', 'post_feed_fwd_residual_hidden_states']):
     """
     Plots the intermediate outputs of the model for each layer.
 
     Args:
     - model: The model whose intermediate outputs are to be plotted.
-    - bins: Number of bins for the histogram.
+    - bins: Number of bins for the histogram. FUNCTION USES FIXED BINS IN THE XLIM RANGE!
     - xlim: Tuple of two values specifying the range of the x-axis for the histogram.
     - ylim: Tuple of two values specifying the range of the y-axis for the histogram.
     - num_layers: Number of Transformer layers layers to plot. If None, all layers are plotted.
@@ -26,17 +23,29 @@ def plot_intermediate_model_outputs(model, bins=100, xlim=None, ylim=None, num_l
 
     if num_layers is None:
         num_layers = len(model.h)
+
+    # Create fixed bins within the xlim range
+    # If you set nr. bins, it either maintains the slice across images, or it concentrates or widens
+    # Bins depending on data range. This makes plots inconsistent.
+    # Fixed bins should fix that, at the cost of missing whatever data lies outside the range
+    bin_edges = np.linspace(xlim[0], xlim[1], bins+1)
     
     for i in range(num_layers):
         int_out = model.h[i].intermediate_outputs
         for key in keys:
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
-            im = ax1.imshow(int_out[key][0])#, aspect='auto', interpolation='nearest')
+            _, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+            current_hidden_layer = int_out[key].squeeze()
+
+            im = ax1.imshow(current_hidden_layer)#, aspect='auto', interpolation='nearest')
             ax1.set_title(f'Layer {i} {key} - Image')
             ax1.figure.colorbar(im, ax=ax1)
-            ax2.hist(int_out[key][0].ravel(), bins)#, bins=20, color='blue')
-            if xlim is not None:
-                ax2.set_xlim(xlim)  # Make histogram range consistent
+            counts, bins, _ = ax2.hist(current_hidden_layer.ravel(), bins=bin_edges)#bins='auto')#, bins=20, color='blue')
+
+            # assert sum(counts) == int_out[key][0].numel(), "Histogram counts do not match the number of elements in the tensor."
+            # if sum(counts) != int_out[key][0].numel():
+            #     ariel_debug = 1
+
+            ax2.set_xlim(xlim)  # Make histogram range consistent. Necessary to determine bins too
             if ylim is not None:
                 ax2.set_ylim(ylim)
             ax2.set_title(f'Layer {i} {key} - Histogram')
